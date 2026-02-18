@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/ricejson/gotool/logx"
 	"github.com/ricejson/oj-native-sandbox-go/service"
@@ -10,12 +12,16 @@ import (
 func main() {
 	logger := logx.NewZapLogger()
 	s := service.NewNativeCodeSandbox(logger)
-	_, err := s.ExecuteCode(context.Background(), &service.ExecuteCodeRequest{
-		"package main\n\nimport (\n\"fmt\"\n\"os\"\n)\n\nfunc main() {\n\ta := os.Args[1]\n\tb := os.Args[2]\n\tfmt.Println(a + b)\n}",
+	//bytes, _ := os.ReadFile("./samples/timeerr/main.go")
+	bytes, _ := os.ReadFile("./samples/memoryerr/main.go")
+	timeErrCodeStr := string(bytes)
+	resp, err := s.ExecuteCode(context.Background(), &service.ExecuteCodeRequest{
+		timeErrCodeStr,
 		"Go",
-		[]string{"1 2", "3 4"},
+		[]string{"1 2"},
 	})
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
 	}
+	fmt.Println(resp)
 }

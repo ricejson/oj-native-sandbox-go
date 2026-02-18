@@ -18,6 +18,7 @@ const (
 	BaseDir        = "./tmpcode"
 	SourceFileName = "main.go"
 	BuiltFileName  = "main"
+	TimeOut        = 5 * time.Second
 )
 
 type ExecuteCodeRequest struct {
@@ -85,9 +86,23 @@ func (s *NativeCodeSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeReq
 	outputResults := make([]string, 0, len(inputSamples))
 	timeArr := make([]int64, 0, len(inputSamples))
 	for _, inputSample := range inputSamples {
-		runCmd := exec.Command(userBuiltFileName, strings.Split(inputSample, " ")...)
+		timeoutCtx, cancelFunc := context.WithTimeout(context.Background(), TimeOut)
+		defer cancelFunc()
+		runCmd := exec.CommandContext(timeoutCtx, userBuiltFileName, strings.Split(inputSample, " ")...)
+		// 设置环境变量限制堆栈内存
+		runCmd.Env = append(os.Environ(), "GOMEMLIMIT=512MiB")
 		startTime := time.Now()
 		output, err = runCmd.CombinedOutput()
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			return &ExecuteCodeResponse{
+				OutputResults: outputResults,
+				JudgeInfo: &domain.JudgeInfo{
+					Message: consts.JudgeMessageTimeLimit, // 超时控制
+					Memory:  -1,
+					Time:    -1,
+				},
+			}, err
+		}
 		timeArr = append(timeArr, time.Since(startTime).Milliseconds())
 		if err != nil {
 			s.logger.Error("run fail，output:", logx.Error(errors.New(strings.TrimSpace(string(output)))))
