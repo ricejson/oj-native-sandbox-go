@@ -2,13 +2,14 @@ package service
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ricejson/gotool/logx"
 	"github.com/ricejson/oj-native-sandbox-go/common/consts"
 	"github.com/ricejson/oj-native-sandbox-go/domain"
 )
@@ -36,6 +37,11 @@ type CodeSandbox interface {
 }
 
 type NativeCodeSandbox struct {
+	logger logx.Logger
+}
+
+func NewNativeCodeSandbox(logger logx.Logger) *NativeCodeSandbox {
+	return &NativeCodeSandbox{logger: logger}
 }
 
 func (s *NativeCodeSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest) (*ExecuteCodeResponse, error) {
@@ -62,8 +68,7 @@ func (s *NativeCodeSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeReq
 	buildCmd := exec.Command("go", "build", "-o", userBuiltFileName, userPath)
 	output, err := buildCmd.CombinedOutput()
 	if err != nil {
-		// TODO 记录日志
-		fmt.Println("build fail，output:", strings.TrimSpace(string(output)))
+		s.logger.Error("build fail，output:", logx.Error(errors.New(strings.TrimSpace(string(output)))))
 		return &ExecuteCodeResponse{
 			OutputResults: nil,
 			JudgeInfo: &domain.JudgeInfo{
@@ -73,8 +78,8 @@ func (s *NativeCodeSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeReq
 			},
 		}, err
 	}
-	// TODO 记录日志
-	fmt.Println("build success，output:", strings.TrimSpace(string(output)))
+	s.logger.Info("build success，output:", logx.String("output", strings.TrimSpace(string(output))))
+
 	// 3. 运行可执行文件
 	inputSamples := req.InputSamples
 	outputResults := make([]string, 0, len(inputSamples))
@@ -85,8 +90,7 @@ func (s *NativeCodeSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeReq
 		output, err = runCmd.CombinedOutput()
 		timeArr = append(timeArr, time.Since(startTime).Milliseconds())
 		if err != nil {
-			// TODO 记录日志
-			fmt.Println("run fail，output:", strings.TrimSpace(string(output)))
+			s.logger.Error("run fail，output:", logx.Error(errors.New(strings.TrimSpace(string(output)))))
 			return &ExecuteCodeResponse{
 				OutputResults: outputResults,
 				JudgeInfo: &domain.JudgeInfo{
@@ -96,11 +100,9 @@ func (s *NativeCodeSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeReq
 				},
 			}, err
 		}
-		// TODO 记录日志
-		fmt.Println("run success，output:", strings.TrimSpace(string(output)))
+		s.logger.Info("run success，output:", logx.String("output", strings.TrimSpace(string(output))))
 		outputResults = append(outputResults, strings.TrimSpace(string(output)))
 	}
-
 	// 4. 组装控制台返回信息
 	// 计算时间取最大值
 	maxTime := int64(-1)

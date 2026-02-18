@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 
+	"github.com/ricejson/gotool/logx"
 	"github.com/ricejson/oj-native-sandbox-go/service"
 )
 
 func main() {
-	s := &service.NativeCodeSandbox{}
+	logger := logx.NewZapLogger()
+	s := service.NewNativeCodeSandbox(logger)
 	_, err := s.ExecuteCode(context.Background(), &service.ExecuteCodeRequest{
 		"package main\n\nimport (\n\"fmt\"\n\"os\"\n)\n\nfunc main() {\n\ta := os.Args[1]\n\tb := os.Args[2]\n\tfmt.Println(a + b)\n}",
 		"Go",
