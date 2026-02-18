@@ -50,6 +50,8 @@ func (s *NativeCodeSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeReq
 	if err != nil {
 		return nil, err
 	}
+	// 销毁资源
+	defer os.RemoveAll(userPath)
 	userSourceFile := userPath + string(os.PathSeparator) + SourceFileName
 	err = os.WriteFile(userSourceFile, []byte(code), os.ModePerm)
 	if err != nil {
