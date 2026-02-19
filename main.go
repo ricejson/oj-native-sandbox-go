@@ -5,15 +5,21 @@ import (
 	"fmt"
 	"os"
 
+	docker "github.com/fsouza/go-dockerclient"
 	"github.com/ricejson/gotool/logx"
 	"github.com/ricejson/oj-native-sandbox-go/service"
 )
 
 func main() {
 	logger := logx.NewZapLogger()
-	s := service.NewNativeCodeSandbox(logger)
+	//s := service.NewNativeCodeSandbox(logger)
+	client, er := docker.NewClientFromEnv()
+	if er != nil {
+		panic(er)
+	}
+	s := service.NewDockerCodeSandbox(logger, client)
 	//bytes, _ := os.ReadFile("./samples/timeerr/main.go")
-	bytes, _ := os.ReadFile("./samples/memoryerr/main.go")
+	bytes, _ := os.ReadFile("./samples/main.go")
 	timeErrCodeStr := string(bytes)
 	resp, err := s.ExecuteCode(context.Background(), &service.ExecuteCodeRequest{
 		timeErrCodeStr,
