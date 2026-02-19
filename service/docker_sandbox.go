@@ -76,13 +76,16 @@ func (s *DockerSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest
 					Target: "/app",
 				},
 			},
+			Memory:         1024 * 1024 * 4096, // 限制4096M
+			ReadonlyRootfs: true,
 		},
 		Config: &docker.Config{
-			Image:        "golang:1.25-alpine",
-			AttachStdin:  true,
-			AttachStdout: true,
-			AttachStderr: true,
-			Tty:          true,
+			Image:           "golang:1.25-alpine",
+			AttachStdin:     true,
+			AttachStdout:    true,
+			AttachStderr:    true,
+			Tty:             true,
+			NetworkDisabled: true, // 禁用联网
 		},
 	})
 	if err != nil {
@@ -123,21 +126,16 @@ func (s *DockerSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest
 		// 执行命令
 		startTime := time.Now()
 		var stdout, stderr bytes.Buffer
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+		defer cancel()
 		err = s.dockerClient.StartExec(createExec.ID, docker.StartExecOptions{
+			Context:      timeoutCtx,
 			OutputStream: &stdout,
 			ErrorStream:  &stderr,
 		})
-		close(stopChan)
-		wg.Wait()
-		close(memoryChan)
-		timeArr = append(timeArr, time.Since(startTime).Milliseconds())
-		var maxMemory int64 = -1
-		for mem := range memoryChan {
-			if mem > maxMemory {
-				maxMemory = mem
-			}
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			return nil, err
 		}
-		memoryArr = append(memoryArr, maxMemory)
 		if err != nil {
 			s.logger.Error("run fail，output:", logx.Error(errors.New(strings.TrimSpace(stderr.String()))))
 			return &ExecuteCodeResponse{
@@ -149,6 +147,18 @@ func (s *DockerSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest
 				},
 			}, err
 		}
+		close(stopChan)
+		wg.Wait()
+		close(memoryChan)
+		timeArr = append(timeArr, time.Since(startTime).Milliseconds())
+		var maxMemory int64 = -1
+		for mem := range memoryChan {
+			if mem > maxMemory {
+				maxMemory = mem
+			}
+		}
+		memoryArr = append(memoryArr, maxMemory)
+
 		s.logger.Info("run success，output:", logx.String("output", strings.TrimSpace(stdout.String())))
 		outputResults = append(outputResults, strings.TrimSpace(stdout.String()))
 	}
