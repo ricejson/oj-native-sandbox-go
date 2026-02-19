@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	docker "github.com/fsouza/go-dockerclient"
@@ -95,6 +96,7 @@ func (s *DockerSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest
 	inputSamples := req.InputSamples
 	outputResults := make([]string, 0, len(inputSamples))
 	timeArr := make([]int64, 0, len(inputSamples))
+	memoryArr := make([]int64, 0, len(inputSamples))
 	for _, inputSample := range inputSamples {
 		// 创建执行命令
 		execCmd := []string{"go", "run", volumeUserPath + string(os.PathSeparator) + SourceFileName}
@@ -109,6 +111,15 @@ func (s *DockerSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest
 		if err != nil {
 			return nil, err
 		}
+		// 启动内存监控协程
+		memoryChan := make(chan int64, 100)
+		stopChan := make(chan struct{}, 1)
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			setStatMonitor(s.dockerClient, container.ID, memoryChan, stopChan)
+		}()
 		// 执行命令
 		startTime := time.Now()
 		var stdout, stderr bytes.Buffer
@@ -116,7 +127,17 @@ func (s *DockerSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest
 			OutputStream: &stdout,
 			ErrorStream:  &stderr,
 		})
+		close(stopChan)
+		wg.Wait()
+		close(memoryChan)
 		timeArr = append(timeArr, time.Since(startTime).Milliseconds())
+		var maxMemory int64 = -1
+		for mem := range memoryChan {
+			if mem > maxMemory {
+				maxMemory = mem
+			}
+		}
+		memoryArr = append(memoryArr, maxMemory)
 		if err != nil {
 			s.logger.Error("run fail，output:", logx.Error(errors.New(strings.TrimSpace(stderr.String()))))
 			return &ExecuteCodeResponse{
@@ -137,12 +158,41 @@ func (s *DockerSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest
 	for _, t := range timeArr {
 		maxTime = max(maxTime, t)
 	}
+	maxMemory := int64(-1)
+	for _, m := range memoryArr {
+		maxTime = max(maxMemory, m)
+	}
 	return &ExecuteCodeResponse{
 		OutputResults: outputResults,
 		JudgeInfo: &domain.JudgeInfo{
 			Message: consts.JudgeMessageAccept,
-			Memory:  0,
+			Memory:  maxMemory,
 			Time:    maxTime,
 		},
 	}, nil
+}
+
+func setStatMonitor(dockerClient *docker.Client, containerId string, memoryChan chan<- int64, stopChan <-chan struct{}) {
+	ticker := time.NewTicker(time.Millisecond * 50)
+	stats := make(chan *docker.Stats, 1)
+	for {
+		select {
+		case <-stopChan:
+			return
+		case <-ticker.C:
+			err := dockerClient.Stats(docker.StatsOptions{
+				ID:     containerId,
+				Stats:  stats,
+				Stream: false, // 单次获取
+			})
+			if err != nil {
+				continue
+			}
+			stat := <-stats
+			memory := stat.MemoryStats.Usage
+			if memory > 0 {
+				memoryChan <- int64(stat.MemoryStats.Usage)
+			}
+		}
+	}
 }
