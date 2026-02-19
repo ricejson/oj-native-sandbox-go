@@ -114,7 +114,7 @@ func (s *DockerSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest
 		// 启动内存监控协程
 		memoryChan := make(chan int64, 100)
 		stopChan := make(chan struct{}, 1)
-		wg := sync.WaitGroup{}
+		var wg sync.WaitGroup
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -173,17 +173,18 @@ func (s *DockerSandbox) ExecuteCode(ctx context.Context, req *ExecuteCodeRequest
 }
 
 func setStatMonitor(dockerClient *docker.Client, containerId string, memoryChan chan<- int64, stopChan <-chan struct{}) {
-	ticker := time.NewTicker(time.Millisecond * 50)
-	stats := make(chan *docker.Stats, 1)
+	ticker := time.NewTicker(time.Millisecond * 1)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-stopChan:
 			return
 		case <-ticker.C:
+			stats := make(chan *docker.Stats, 1)
 			err := dockerClient.Stats(docker.StatsOptions{
 				ID:     containerId,
 				Stats:  stats,
-				Stream: false, // 单次获取
+				Stream: false,
 			})
 			if err != nil {
 				continue
